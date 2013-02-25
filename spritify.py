@@ -97,7 +97,7 @@ def spritify(scene):
 
         subprocess.call([
             "montage",
-            scene.render.filepath + "*", #XXX Assumes the files in the render path are only for the rendered animation
+            bpy.path.abspath(scene.render.filepath) + "*", #XXX Assumes the files in the render path are only for the rendered animation
             "-tile", tile_setting,
             "-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
                 + "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
@@ -123,7 +123,7 @@ def gifify(scene):
             "-delay", "1x" + str(scene.render.fps),
             "-dispose", "background",
             "-loop", "0",
-            scene.render.filepath + "*", #XXX Assumes the files in the render path are only for the rendered animation
+            bpy.path.abspath(scene.render.filepath) + "*", #XXX Assumes the files in the render path are only for the rendered animation
             bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif")])
 
 
