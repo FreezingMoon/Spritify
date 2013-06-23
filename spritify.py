@@ -40,7 +40,7 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         name = "Sprite Sheet Filepath",
         description = "Save location for sprite sheet (should be PNG format)",
         subtype = 'FILE_PATH',
-        default = bpy.context.scene.render.filepath + "sprites.png")
+        default = os.path.join(bpy.context.user_preferences.filepaths.render_output_directory, "sprites.png"))
     quality = bpy.props.IntProperty(
         name = "Quality",
         description = "Quality setting for sprite sheet image",
