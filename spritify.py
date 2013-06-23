@@ -21,8 +21,8 @@
 bl_info = {
     "name": "Spritify",
     "author": "Jason van Gumster (Fweeb)",
-    "version": (0, 4, 0),
-    "blender": (2, 63, 0),
+    "version": (0, 5, 0),
+    "blender": (2, 66, 0),
     "location": "Render > Spritify",
     "description": "Converts rendered frames into a sprite sheet once render is complete",
     "warning": "Requires ImageMagick",
