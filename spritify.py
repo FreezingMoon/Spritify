@@ -21,7 +21,7 @@
 bl_info = {
     "name": "Spritify",
     "author": "Jason van Gumster (Fweeb)",
-    "version": (0, 5, 0),
+    "version": (0, 5, 1),
     "blender": (2, 66, 0),
     "location": "Render > Spritify",
     "description": "Converts rendered frames into a sprite sheet once render is complete",
@@ -59,11 +59,11 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
     offset_x = bpy.props.IntProperty(
         name = "Offset X",
         description = "Horizontal offset between tiles (in pixels)",
-        default = 3)
+        default = 2)
     offset_y = bpy.props.IntProperty(
         name = "Offset Y",
         description = "Vertical offset between tiles (in pixels)",
-        default = 3)
+        default = 2)
     bg_color = bpy.props.FloatVectorProperty(
         name = "Background Color",
         description = "Fill color for sprite backgrounds",
