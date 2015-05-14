@@ -81,6 +81,23 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         description = "Automatically create an animated GIF when rendering is complete",
         default = True)
 
+        
+def find_bin_path_windows():
+    import winreg
+
+    REG_PATH = "SOFTWARE\ImageMagick\Current"
+    
+    try:
+        registry_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH, 0,
+                                       winreg.KEY_READ)
+        value, regtype = winreg.QueryValueEx(registry_key, "BinPath")
+        winreg.CloseKey(registry_key)
+        
+    except WindowsError:
+        return None
+            
+    return value
+        
 
 @persistent
 def spritify(scene):
@@ -118,8 +135,16 @@ def gifify(scene):
         if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif")):
             os.remove(bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif"))
 
+        # If windows, try and find binary
+        convert_path = "convert"
+        if os.name == "nt":
+            bin_path = find_bin_path_windows()
+            
+            if bin_path:
+                convert_path = os.path.join(bin_path, "convert")
+            
         subprocess.call([
-            "convert",
+            convert_path,
             "-delay", "1x" + str(scene.render.fps),
             "-dispose", "background",
             "-loop", "0",
