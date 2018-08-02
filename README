@@ -9,8 +9,6 @@ automatically generate a sprite sheet each time an animation render completes.
 
 As of version 0.4.0, Spritify will also optionally generate an animated GIF.
 
-Originally developed for use in the Ancient Beast (http://www.ancientbeast.com/)
-project.
+Originally developed for use in the [Ancient Beast](https://AncientBeast.com) game project.
 
-More complete documentation can be found in Blender's add-ons Catalog
-(http://wiki.blender.org/index.php/Extensions:2.6/Py/Scripts/Render/Spritify)
+More complete documentation can be found in Blender's [add-ons catalog](https://en.blender.org/index.php/Extensions:2.6/Py/Scripts/Render/Spritify).
