@@ -1,3 +1,4 @@
+  
 # ***** BEGIN GPL LICENSE BLOCK *****
 #
 #
@@ -21,8 +22,8 @@
 bl_info = {
     "name": "Spritify",
     "author": "Jason van Gumster (Fweeb)",
-    "version": (0, 6, 1),
-    "blender": (2, 66, 0),
+    "version": (0, 6, 3),
+    "blender": (2, 80, 0),
     "location": "Render > Spritify",
     "description": "Converts rendered frames into a sprite sheet once render is complete",
     "warning": "Requires ImageMagick",
@@ -31,40 +32,44 @@ bl_info = {
     "category": "Render"}
 
 
-import bpy, os, subprocess
+import bpy, os, subprocess, math
 from bpy.app.handlers import persistent
 
 
 class SpriteSheetProperties(bpy.types.PropertyGroup):
-    filepath = bpy.props.StringProperty(
+    filepath: bpy.props.StringProperty(
         name = "Sprite Sheet Filepath",
         description = "Save location for sprite sheet (should be PNG format)",
         subtype = 'FILE_PATH',
-        default = os.path.join(bpy.context.user_preferences.filepaths.render_output_directory, "sprites.png"))
-    quality = bpy.props.IntProperty(
+        default = os.path.join(bpy.context.preferences.filepaths.render_output_directory, "sprites.png"))
+    quality: bpy.props.IntProperty(
         name = "Quality",
         description = "Quality setting for sprite sheet image",
         subtype = 'PERCENTAGE',
         max = 100,
         default = 100)
-    is_rows = bpy.props.EnumProperty(
+    is_rows: bpy.props.EnumProperty(
         name = "Rows/Columns",
         description = "Choose if tiles will be arranged by rows or columns",
         items = (('ROWS', "Rows", "Rows"), ('COLUMNS', "Columns", "Columns")),
         default = 'ROWS')
-    tiles = bpy.props.IntProperty(
+    tiles: bpy.props.IntProperty(
         name = "Tiles",
         description = "Number of tiles in the chosen direction (rows or columns)",
         default = 8)
-    offset_x = bpy.props.IntProperty(
+    files : bpy.props.IntProperty(
+		name = "File count",
+		description = "Number of files to split sheet into",
+		default = 1)							   		  
+    offset_x: bpy.props.IntProperty(
         name = "Offset X",
         description = "Horizontal offset between tiles (in pixels)",
         default = 2)
-    offset_y = bpy.props.IntProperty(
+    offset_y: bpy.props.IntProperty(
         name = "Offset Y",
         description = "Vertical offset between tiles (in pixels)",
         default = 2)
-    bg_color = bpy.props.FloatVectorProperty(
+    bg_color: bpy.props.FloatVectorProperty(
         name = "Background Color",
         description = "Fill color for sprite backgrounds",
         subtype = 'COLOR',
@@ -72,11 +77,11 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         min = 0.0,
         max = 1.0,
         default = (0.0, 0.0, 0.0, 0.0))
-    auto_sprite = bpy.props.BoolProperty(
+    auto_sprite: bpy.props.BoolProperty(
         name = "AutoSpritify",
         description = "Automatically create a spritesheet when rendering is complete",
         default = True)
-    auto_gif = bpy.props.BoolProperty(
+    auto_gif: bpy.props.BoolProperty(
         name = "AutoGIF",
         description = "Automatically create an animated GIF when rendering is complete",
         default = True)
@@ -95,36 +100,60 @@ def find_bin_path_windows():
         
     except WindowsError:
         return None
-            
+    
+    print(value)
     return value
         
 
 @persistent
 def spritify(scene):
-    if scene.spritesheet.auto_sprite == True:
-        print("Making sprite sheet")
-        # Remove existing spritesheet if it's already there
-        if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath)):
-            os.remove(bpy.path.abspath(scene.spritesheet.filepath))
+	if scene.spritesheet.auto_sprite == True:
+		print("Making sprite sheet")
+		# Remove existing spritesheet if it's already there
+		if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath)):
+			os.remove(bpy.path.abspath(scene.spritesheet.filepath))
 
-        if scene.spritesheet.is_rows == 'ROWS':
-            tile_setting = str(scene.spritesheet.tiles) + "x"
-        else:
-            tile_setting = "x" + str(scene.spritesheet.tiles)
+		if scene.spritesheet.is_rows == 'ROWS':
+			tile_setting = str(scene.spritesheet.tiles) + "x"
+		else:
+			tile_setting = "x" + str(scene.spritesheet.tiles)
 
-        subprocess.call([
-            "montage",
-            bpy.path.abspath(scene.render.filepath) + "*", #XXX Assumes the files in the render path are only for the rendered animation
-            "-tile", tile_setting,
-            "-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
-                + "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
-            "-background", "rgba(" + \
-                str(scene.spritesheet.bg_color[0] * 100) + "%, " + \
-                str(scene.spritesheet.bg_color[1] * 100) + "%, " + \
-                str(scene.spritesheet.bg_color[2] * 100) + "%, " + \
-                str(scene.spritesheet.bg_color[3]) + ")",
-            "-quality", str(scene.spritesheet.quality),
-            bpy.path.abspath(scene.spritesheet.filepath)])
+		# Preload images
+		images = []
+		for dirname, dirnames, filenames in os.walk(bpy.path.abspath(scene.render.filepath)):
+			for filename in filenames:
+				images.append(os.path.join(dirname, filename))
+		
+		# Calc number of images per file
+		per_file = math.ceil(len(images) / scene.spritesheet.files)
+		offset = 0
+		index = 0
+
+		#While is faster than for+range
+		while offset < len(images):
+			current_images = images[offset:offset+per_file]
+			filename = scene.spritesheet.filepath
+			if scene.spritesheet.files > 1:
+				filename = scene.spritesheet.filepath[:-4] + "-" + str(index) + scene.spritesheet.filepath[-4:]
+			
+			montage_call = [
+				"montage",
+				"-tile", tile_setting,
+				"-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
+					+ "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
+				"-background", "rgba(" + \
+					str(scene.spritesheet.bg_color[0] * 100) + "%, " + \
+					str(scene.spritesheet.bg_color[1] * 100) + "%, " + \
+					str(scene.spritesheet.bg_color[2] * 100) + "%, " + \
+					str(scene.spritesheet.bg_color[3]) + ")",
+				"-quality", str(scene.spritesheet.quality)
+			]
+			montage_call.extend(current_images)
+			montage_call.append(bpy.path.abspath(filename))
+			
+			subprocess.call(montage_call)
+			offset += per_file
+			index += 1
 
 
 @persistent
@@ -142,7 +171,7 @@ def gifify(scene):
             
             if bin_path:
                 convert_path = os.path.join(bin_path, "convert")
-            
+
         subprocess.call([
             convert_path,
             "-delay", "1x" + str(scene.render.fps),
@@ -215,28 +244,28 @@ class SpritifyPanel(bpy.types.Panel):
 
         layout.prop(context.scene.spritesheet, "filepath")
         box = layout.box()
-        split = box.split(percentage = 0.5)
+        split = box.split(factor = 0.5)
         col = split.column()
         col.operator("render.spritify", text = "Generate Sprite Sheet")
         col = split.column()
         col.prop(context.scene.spritesheet, "auto_sprite")
-        split = box.split(percentage = 0.5)
+        split = box.split(factor = 0.5)
         col = split.column(align = True)
         col.row().prop(context.scene.spritesheet, "is_rows", expand = True)
         col.prop(context.scene.spritesheet, "tiles")
-        sub = col.split(percentage = 0.5)
+        sub = col.split(factor = 0.5)
         sub.prop(context.scene.spritesheet, "offset_x")
         sub.prop(context.scene.spritesheet, "offset_y")
         col = split.column()
         col.prop(context.scene.spritesheet, "bg_color")
         col.prop(context.scene.spritesheet, "quality", slider = True)
         box = layout.box()
-        split = box.split(percentage = 0.5)
+        split = box.split(factor = 0.5)
         col = split.column()
         col.operator("render.gifify", text = "Generate Animated GIF")
         col = split.column()
         col.prop(context.scene.spritesheet, "auto_gif")
-        box.label("Animated GIF uses the spritesheet filepath")
+        box.label(text="Animated GIF uses the spritesheet filepath")
         
 
 
