@@ -22,13 +22,13 @@
 bl_info = {
     "name": "Spritify",
     "author": "Jason van Gumster (Fweeb)",
-    "version": (0, 6, 3),
+    "version": (0, 6, 4),
     "blender": (2, 80, 0),
     "location": "Render > Spritify",
     "description": "Converts rendered frames into a sprite sheet once render is complete",
     "warning": "Requires ImageMagick",
     "wiki_url": "http://wiki.blender.org/index.php?title=Extensions:2.6/Py/Scripts/Render/Spritify",
-    "tracker_url": "http://projects.blender.org/tracker/index.php?func=detail&aid=31129&group_id=153&atid=467",
+    "tracker_url": "https://github.com/FreezingMoon/Spritify/issues",
     "category": "Render"}
 
 
