@@ -1,14 +1,14 @@
 ### About
 
 This [Blender](https://blender.org) add-on will compile all rendered frames from your animation into a very nice and configurable sprite sheet, that's usable for sprite-based video games and even in modern cool websites.
-It can also generate animated gifs, allowing you to easily showcase and preview animations without needing to use any code at all, which usually comes in very handy.
+It can also generate animated gifs, allowing you to easily showcase and preview animations without needing to use any code at all, useful stuff.
 
 It was originally developed for use in the amazing [Ancient Beast](https://AncientBeast.com) eSport game project but sharing is caring! 🌟
 
 ### Requirements
 
 This add-on requires that you have [ImageMagick](https://imagemagick.org) installed on your computer and the montage command is in your system path.
-It also assumes that you're rendering a sequence of still frames. Video renders will not work, so keep that in mind.
+It also assumes that you're rendering a sequence of still frames. Video renders will not work for this.
 
 ### Installation
 
