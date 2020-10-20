@@ -138,6 +138,7 @@ def spritify(scene):
 			
 			montage_call = [
 				"montage",
+				"-depth", "8",
 				"-tile", tile_setting,
 				"-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
 					+ "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
