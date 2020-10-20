@@ -121,7 +121,7 @@ def spritify(scene):
 		# Preload images
 		images = []
 		for dirname, dirnames, filenames in os.walk(bpy.path.abspath(scene.render.filepath)):
-			for filename in filenames:
+			for filename in sorted(filenames):
 				images.append(os.path.join(dirname, filename))
 		
 		# Calc number of images per file
