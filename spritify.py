@@ -42,6 +42,12 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         description = "Save location for sprite sheet (should be PNG format)",
         subtype = 'FILE_PATH',
         default = os.path.join(bpy.context.preferences.filepaths.render_output_directory, "sprites.png"))
+    imagemagick_path: bpy.props.StringProperty(
+        name = "Imagemagick Path",
+        description = "Path where the Imagemagick binaries can be found (only on Linux and macOS)",
+        subtype = 'FILE_PATH',
+        default = '/usr/bin'
+    )
     quality: bpy.props.IntProperty(
         name = "Quality",
         description = "Quality setting for sprite sheet image",
@@ -58,9 +64,9 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         description = "Number of tiles in the chosen direction (rows or columns)",
         default = 8)
     files : bpy.props.IntProperty(
-		name = "File count",
-		description = "Number of files to split sheet into",
-		default = 1)							   		  
+        name = "File count",
+        description = "Number of files to split sheet into",
+        default = 1)                                      
     offset_x: bpy.props.IntProperty(
         name = "Offset X",
         description = "Horizontal offset between tiles (in pixels)",
@@ -85,6 +91,10 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         name = "AutoGIF",
         description = "Automatically create an animated GIF when rendering is complete",
         default = True)
+    support_multiview: bpy.props.BoolProperty(
+        name = "Support Multiviews",
+        description = "Render multiple spritesheets based on multivie suffixes if stereoscopy/multiview is configured",
+        default = True)
 
         
 def find_bin_path_windows():
@@ -107,54 +117,72 @@ def find_bin_path_windows():
 
 @persistent
 def spritify(scene):
-	if scene.spritesheet.auto_sprite == True:
-		print("Making sprite sheet")
-		# Remove existing spritesheet if it's already there
-		if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath)):
-			os.remove(bpy.path.abspath(scene.spritesheet.filepath))
+    if scene.spritesheet.auto_sprite == True:
+        print("Making sprite sheet")
+        # Remove existing spritesheet if it's already there
+        if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath)):
+            os.remove(bpy.path.abspath(scene.spritesheet.filepath))
 
-		if scene.spritesheet.is_rows == 'ROWS':
-			tile_setting = str(scene.spritesheet.tiles) + "x"
-		else:
-			tile_setting = "x" + str(scene.spritesheet.tiles)
+        if scene.spritesheet.is_rows == 'ROWS':
+            tile_setting = str(scene.spritesheet.tiles) + "x"
+        else:
+            tile_setting = "x" + str(scene.spritesheet.tiles)
+            
+        suffixes = []
+        
+        if scene.spritesheet.support_multiview and scene.render.use_multiview and scene.render.views_format == 'MULTIVIEW':
+            for view in scene.render.views:
+                suffixes.append(view.file_suffix)
+        else:
+            suffixes.append('')
+            
+        for suffix in suffixes:
 
-		# Preload images
-		images = []
-		for dirname, dirnames, filenames in os.walk(bpy.path.abspath(scene.render.filepath)):
-			for filename in sorted(filenames):
-				images.append(os.path.join(dirname, filename))
-		
-		# Calc number of images per file
-		per_file = math.ceil(len(images) / scene.spritesheet.files)
-		offset = 0
-		index = 0
+            # Preload images
+            images = []
+            for dirname, dirnames, filenames in os.walk(bpy.path.abspath(scene.render.filepath)):
+                for filename in sorted(filenames):
+                    if filename.endswith("%s.png" % suffix):
+                        images.append(os.path.join(dirname, filename))
+            
+            # Calc number of images per file
+            per_file = math.ceil(len(images) / scene.spritesheet.files)
+            offset = 0
+            index = 0
 
-		#While is faster than for+range
-		while offset < len(images):
-			current_images = images[offset:offset+per_file]
-			filename = scene.spritesheet.filepath
-			if scene.spritesheet.files > 1:
-				filename = scene.spritesheet.filepath[:-4] + "-" + str(index) + scene.spritesheet.filepath[-4:]
-			
-			montage_call = [
-				"montage",
-				"-depth", "8",
-				"-tile", tile_setting,
-				"-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
-					+ "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
-				"-background", "rgba(" + \
-					str(scene.spritesheet.bg_color[0] * 100) + "%, " + \
-					str(scene.spritesheet.bg_color[1] * 100) + "%, " + \
-					str(scene.spritesheet.bg_color[2] * 100) + "%, " + \
-					str(scene.spritesheet.bg_color[3]) + ")",
-				"-quality", str(scene.spritesheet.quality)
-			]
-			montage_call.extend(current_images)
-			montage_call.append(bpy.path.abspath(filename))
-			
-			subprocess.call(montage_call)
-			offset += per_file
-			index += 1
+            #While is faster than for+range
+            while offset < len(images):
+                current_images = images[offset:offset+per_file]
+                filename = scene.spritesheet.filepath
+                if scene.spritesheet.files > 1:
+                    filename = "%s-%d-%s%s" % (scene.spritesheet.filepath[:-4], index, suffix, scene.spritesheet.filepath[-4:])
+                else:
+                    filename = "%s%s%s" % (scene.spritesheet.filepath[:-4], suffix, scene.spritesheet.filepath[-4:])
+
+                bin_path = scene.spritesheet.imagemagick_path
+                
+                if os.name == "nt":
+                    bin_path = find_bin_path_windows()
+                    
+                montage_call = [
+                    "%s/montage" % bin_path,
+                    "-depth", "8",
+                    "-tile", tile_setting,
+                    "-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
+                        + "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
+                    "-background", "rgba(" + \
+                        str(scene.spritesheet.bg_color[0] * 100) + "%, " + \
+                        str(scene.spritesheet.bg_color[1] * 100) + "%, " + \
+                        str(scene.spritesheet.bg_color[2] * 100) + "%, " + \
+                        str(scene.spritesheet.bg_color[3]) + ")",
+                    "-quality", str(scene.spritesheet.quality)
+                ]
+                montage_call.extend(current_images)
+                montage_call.append(bpy.path.abspath(filename))
+                
+                subprocess.call(montage_call)
+                offset += per_file
+                index += 1
 
 
 @persistent
@@ -166,13 +194,14 @@ def gifify(scene):
             os.remove(bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif"))
 
         # If windows, try and find binary
-        convert_path = "convert"
+        convert_path = "%s/convert" % scene.spritesheet.imagemagick_path
+        
         if os.name == "nt":
             bin_path = find_bin_path_windows()
             
             if bin_path:
                 convert_path = os.path.join(bin_path, "convert")
-
+        
         subprocess.call([
             convert_path,
             "-delay", "1x" + str(scene.render.fps),
@@ -242,7 +271,8 @@ class SpritifyPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-
+    
+        layout.prop(context.scene.spritesheet, "imagemagick_path")
         layout.prop(context.scene.spritesheet, "filepath")
         box = layout.box()
         split = box.split(factor = 0.5)
@@ -260,6 +290,7 @@ class SpritifyPanel(bpy.types.Panel):
         col = split.column()
         col.prop(context.scene.spritesheet, "bg_color")
         col.prop(context.scene.spritesheet, "quality", slider = True)
+        box.prop(context.scene.spritesheet, "support_multiview")
         box = layout.box()
         split = box.split(factor = 0.5)
         col = split.column()
