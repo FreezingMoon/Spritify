@@ -164,11 +164,18 @@ def spritify(scene):
                 if os.name == "nt":
                     bin_path = find_bin_path_windows()
                     
+                width = scene.render.resolution_x
+                height = scene.render.resolution_y
+                
+                if scene.render.use_crop_to_border:
+                    width = scene.render.border_max_x * width - scene.render.border_min_x * width
+                    height = scene.render.border_max_y * height - scene.render.border_min_y * height
+                    
                 montage_call = [
                     "%s/montage" % bin_path,
                     "-depth", "8",
                     "-tile", tile_setting,
-                    "-geometry", str(scene.render.resolution_x) + "x" + str(scene.render.resolution_y) \
+                    "-geometry", str(width) + "x" + str(height) \
                         + "+" + str(scene.spritesheet.offset_x) + "+" + str(scene.spritesheet.offset_y),
                     "-background", "rgba(" + \
                         str(scene.spritesheet.bg_color[0] * 100) + "%, " + \
