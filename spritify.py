@@ -164,8 +164,8 @@ def spritify(scene):
                 if os.name == "nt":
                     bin_path = find_bin_path_windows()
                     
-                width = scene.render.resolution_x
-                height = scene.render.resolution_y
+                width = scene.render.resolution_x * scene.render.resolution_percentage / 100
+                height = scene.render.resolution_y * scene.render.resolution_percentage / 100
                 
                 if scene.render.use_crop_to_border:
                     width = scene.render.border_max_x * width - scene.render.border_min_x * width
