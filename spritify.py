@@ -1,4 +1,6 @@
-  
+'''
+Convert rendered frames into a sprite sheet once render is complete.
+'''
 # ***** BEGIN GPL LICENSE BLOCK *****
 #
 #
@@ -66,7 +68,7 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
     files : bpy.props.IntProperty(
         name = "File count",
         description = "Number of files to split sheet into",
-        default = 1)                                      
+        default = 1)
     offset_x: bpy.props.IntProperty(
         name = "Offset X",
         description = "Horizontal offset between tiles (in pixels)",
@@ -96,24 +98,24 @@ class SpriteSheetProperties(bpy.types.PropertyGroup):
         description = "Render multiple spritesheets based on multivie suffixes if stereoscopy/multiview is configured",
         default = True)
 
-        
+
 def find_bin_path_windows():
     import winreg
 
     REG_PATH = "SOFTWARE\ImageMagick\Current"
-    
+
     try:
         registry_key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, REG_PATH, 0,
                                        winreg.KEY_READ)
         value, regtype = winreg.QueryValueEx(registry_key, "BinPath")
         winreg.CloseKey(registry_key)
-        
+
     except WindowsError:
         return None
-    
+
     print(value)
     return value
-        
+
 
 @persistent
 def spritify(scene):
@@ -127,29 +129,38 @@ def spritify(scene):
             tile_setting = str(scene.spritesheet.tiles) + "x"
         else:
             tile_setting = "x" + str(scene.spritesheet.tiles)
-            
+
         suffixes = []
-        
+
         if scene.spritesheet.support_multiview and scene.render.use_multiview and scene.render.views_format == 'MULTIVIEW':
             for view in scene.render.views:
                 suffixes.append(view.file_suffix)
         else:
             suffixes.append('')
-            
-        for suffix in suffixes:
 
+        for suffix in suffixes:
+            print("Preloading {}".format(suffix))
             # Preload images
             images = []
-            for dirname, dirnames, filenames in os.walk(bpy.path.abspath(scene.render.filepath)):
+            render_dir = bpy.path.abspath(scene.render.filepath)
+            for dirname, dirnames, filenames in os.walk(render_dir):
                 for filename in sorted(filenames):
                     if filename.endswith("%s.png" % suffix):
                         images.append(os.path.join(dirname, filename))
-            
+
             # Calc number of images per file
             per_file = math.ceil(len(images) / scene.spritesheet.files)
             offset = 0
             index = 0
 
+            if len(images) < 1:
+                raise FileNotFoundError(
+                    'There are 0 images in "{}".'
+                    '\nGenerate Sprite Sheet requires:'
+                    '\n1. Output Properties: Set format to PNG'
+                    '\n2. Render, Render Animation.'
+                    ''.format(render_dir)
+                )
             #While is faster than for+range
             while offset < len(images):
                 current_images = images[offset:offset+per_file]
@@ -160,19 +171,26 @@ def spritify(scene):
                     filename = "%s%s%s" % (scene.spritesheet.filepath[:-4], suffix, scene.spritesheet.filepath[-4:])
 
                 bin_path = scene.spritesheet.imagemagick_path
-                
+
                 if os.name == "nt":
                     bin_path = find_bin_path_windows()
-                    
+
+                montage_path = "%s/montage" % bin_path
+                if not os.path.isfile(montage_path):
+                    raise FileNotFoundError(
+                        'The executable "{}" does not exist.'
+                        ' Ensure ImageMagick is installed and that the bin directory is correct in Render Options, Spritify.'
+                        ''.format(montage_path)
+                    )
                 width = scene.render.resolution_x * scene.render.resolution_percentage / 100
                 height = scene.render.resolution_y * scene.render.resolution_percentage / 100
-                
+
                 if scene.render.use_crop_to_border:
                     width = scene.render.border_max_x * width - scene.render.border_min_x * width
                     height = scene.render.border_max_y * height - scene.render.border_min_y * height
-                    
+
                 montage_call = [
-                    "%s/montage" % bin_path,
+                    montage_path,
                     "-depth", "8",
                     "-tile", tile_setting,
                     "-geometry", str(width) + "x" + str(height) \
@@ -186,8 +204,9 @@ def spritify(scene):
                 ]
                 montage_call.extend(current_images)
                 montage_call.append(bpy.path.abspath(filename))
-                
-                subprocess.call(montage_call)
+
+                result = subprocess.call(montage_call)
+                print(montage_call, "result:", result)
                 offset += per_file
                 index += 1
 
@@ -202,13 +221,31 @@ def gifify(scene):
 
         # If windows, try and find binary
         convert_path = "%s/convert" % scene.spritesheet.imagemagick_path
-        
+
+
         if os.name == "nt":
             bin_path = find_bin_path_windows()
-            
+
             if bin_path:
                 convert_path = os.path.join(bin_path, "convert")
-        
+
+        if not os.path.isfile(convert_path):
+            raise FileNotFoundError(
+                'The executable "{}" does not exist.'
+                ' Ensure ImageMagick is installed and that the bin directory is correct in Render Options, Spritify.'
+                ''.format(convert_path)
+            )
+
+        if not os.path.isfile(scene.render.filepath):
+            caveat = ""
+            raise FileNotFoundError(
+                '"{}" does not exist.'
+                '\nGenerating GIF requires:'
+                '\n1. Output Properties: Set format to PNG'
+                '\n2. Render, Render Animation.'
+                '\n3. Generate Sprite Sheet'
+            )
+
         subprocess.call([
             convert_path,
             "-delay", "1x" + str(scene.render.fps),
@@ -226,10 +263,22 @@ class SpritifyOperator(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.scene is not None and len(os.listdir(bpy.path.abspath(context.scene.render.filepath))) > 0: #XXX a bit hacky; an empty dir doesn't necessarily mean that the render has been done
+        '''
+        Check if rendering is finished.
+        See FIXME notes below regarding:
+        - context.scene.render.filepath is //tmp which resolves to tmp
+          in directory of blend file. However, being missing/empty
+          isn't a reliable way of determining if the render finished.
+        '''
+        tmp_path = bpy.path.abspath(context.scene.render.filepath)
+        if context.scene is not None:
+            if not os.path.isdir(tmp_path):
+                return True  # FIXME: See comment in next line.
+        if (context.scene is not None) and len(os.listdir(tmp_path)) > 0:  # FIXME: a bit hacky; an empty dir doesn't necessarily mean that the render has been done
             return True
         else:
             return False
+            print("not done yet")
 
     def execute(self, context):
         toggle = False
@@ -250,10 +299,22 @@ class GIFifyOperator(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.scene is not None and len(os.listdir(bpy.path.abspath(context.scene.render.filepath))) > 0: #XXX a bit hacky; an empty dir doesn't necessarily mean that the render has been done
+        '''
+        Check if rendering is finished.
+        See FIXME notes below regarding:
+        - context.scene.render.filepath is //tmp which resolves to tmp
+          in directory of blend file. However, being missing/empty
+          isn't a reliable way of determining if the render finished.
+        '''
+        tmp_path = bpy.path.abspath(context.scene.render.filepath)
+        if context.scene is not None:
+            if not os.path.isdir(tmp_path):
+                return True  # FIXME: See comment in next line.
+        if (context.scene is not None) and len(os.listdir(tmp_path)) > 0:  # FIXME: a bit hacky; an empty dir doesn't necessarily mean that the render has been done
             return True
         else:
             return False
+            print("not done yet")
 
     def execute(self, context):
         toggle = False
@@ -278,7 +339,7 @@ class SpritifyPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-    
+
         layout.prop(context.scene.spritesheet, "imagemagick_path")
         layout.prop(context.scene.spritesheet, "filepath")
         box = layout.box()
@@ -305,7 +366,7 @@ class SpritifyPanel(bpy.types.Panel):
         col = split.column()
         col.prop(context.scene.spritesheet, "auto_gif")
         box.label(text="Animated GIF uses the spritesheet filepath")
-        
+
 
 
 # Registration
