@@ -24,6 +24,7 @@ import os
 import subprocess
 import math
 from bpy.app.handlers import persistent
+import sys
 
 bl_info = {
     "name": "Spritify",
@@ -138,10 +139,16 @@ def find_bin_path_windows():
     return value
 
 
+def show_message(message, title="Spritify", icon='INFO'):
+    def draw(self, context):
+        self.layout.label(text=message)
+    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+
+
 @persistent
 def spritify(scene):
     if scene.spritesheet.auto_sprite:
-        print("Making sprite sheet")
+        print("[Spritify] Making sprite sheet")
         # Remove existing spritesheet if it's already there
         if os.path.exists(bpy.path.abspath(scene.spritesheet.filepath)):
             os.remove(bpy.path.abspath(scene.spritesheet.filepath))
@@ -159,9 +166,9 @@ def spritify(scene):
                 suffixes.append(view.file_suffix)
         else:
             suffixes.append('')
-
+        destination = None
         for suffix in suffixes:
-            print("Preloading {}".format(suffix))
+            print('[Spritify] Preloading suffix "{}"'.format(suffix))
             # Preload images
             images = []
             render_dir = bpy.path.abspath(scene.render.filepath)
@@ -178,12 +185,17 @@ def spritify(scene):
             if len(images) < 1:
                 raise FileNotFoundError(
                     'There are 0 images in "{}".'
-                    '\nGenerate Sprite Sheet requires:'
+                    '\n\nGenerate Sprite Sheet requires:'
                     '\n1. Output Properties: Set format to PNG'
                     '\n2. Render, Render Animation.'
                     ''.format(render_dir)
                 )
+            print("[Spritify] Processing {} image(s)".format(len(images)))
             # While is faster than for+range
+            if per_file < 1:
+                raise ValueError("The offset cannot be less than 1.")
+                # ^ Prevent an infinite loop.
+
             while offset < len(images):
                 current_images = images[offset:offset+per_file]
                 filename = scene.spritesheet.filepath
@@ -195,7 +207,7 @@ def spritify(scene):
                     filename = "%s%s%s" % (scene.spritesheet.filepath[:-4],
                                            suffix,
                                            scene.spritesheet.filepath[-4:])
-
+                print('[Spritify] processing "{}"'.format(filename))
                 bin_path = scene.spritesheet.imagemagick_path
 
                 if os.name == "nt":
@@ -225,10 +237,19 @@ def spritify(scene):
                     scene.spritesheet.offset_x,
                     scene.spritesheet.offset_y
                 )
-
+                montage_path = os.path.join(bin_path, "montage")
+                if not os.path.isfile(montage_path):
+                    raise FileNotFoundError(
+                        'The executable "{}" does not exist.'
+                        '\nTIP: Make sure ImageMagick is installed and that'
+                        ' the bin directory is correct'
+                        ' in Render Properties, Spritify.'
+                        ''.format(montage_path)
+                    )
                 depth = "8"
+                destination = bpy.path.abspath(filename)
                 montage_call = [
-                    "{}/montage".format(bin_path),
+                    montage_path,
                     "-depth",
                     depth,
                     "-tile",
@@ -237,22 +258,31 @@ def spritify(scene):
                     geometry,
                     "-background",
                     background,
-                    "-quality{}".format(scene.spritesheet.quality),
-                ]
+                    "-quality",
+                    str(scene.spritesheet.quality),
+                ]  # See extend below for source, & append for destination
                 montage_call.extend(current_images)
-                montage_call.append(bpy.path.abspath(filename))
+                montage_call.append(destination)
 
                 result = subprocess.call(montage_call)
-                # print(montage_call, "result:", result)
+                # print("[Spritify]", montage_call, "result:", result)
                 # ^ still 1 even if succeeds for some reason
                 offset += per_file
                 index += 1
+        if os.path.isfile(destination):
+            msg = 'Spritify finished writing "{}".'.format(destination)
+            show_message(msg)
+            print(msg)
+        else:
+            msg = 'Spritify failed to write "{}".'.format(destination)
+            show_message(msg, icon="ERROR")
+            print(msg, file=sys.stderr)
 
 
 @persistent
 def gifify(scene):
     if scene.spritesheet.auto_gif:
-        print("Generating animated GIF")
+        print("[Spritify] Generating animated GIF")
         # Remove existing animated GIF if it's already there
         #   (uses the same path as the spritesheet)
         if os.path.exists(
@@ -272,31 +302,66 @@ def gifify(scene):
         if not os.path.isfile(convert_path):
             raise FileNotFoundError(
                 'The executable "{}" does not exist.'
-                ' Ensure ImageMagick is installed and that'
-                ' the bin directory is correct in Render Options, Spritify.'
+                '\n\nTIP: Make sure ImageMagick is installed and that'
+                ' the bin directory is correct in Render Properties, Spritify.'
                 ''.format(convert_path)
             )
 
-        if not os.path.isfile(scene.render.filepath):
+        try_dir, name_partial = os.path.split(scene.render.filepath)
+        # ^ It is a partial name--It may have numbers after it.
+        # partial, dotext = os.path.splitext(name_partial)
+        found_any_file = None
+        source = bpy.path.abspath(scene.render.filepath) + "*"
+        if os.path.isdir(try_dir):
+            for sub in os.listdir(try_dir):
+                if sub.startswith("."):
+                    continue
+                if sub.lower().endswith(".tmp"):
+                    continue
+                sub_path = os.path.join(try_dir, sub)
+                if not os.path.isfile(sub_path):
+                    continue
+                found_any_file = sub_path
+                break
+
+        if found_any_file is None:
             caveat = ""
             raise FileNotFoundError(
                 '"{}" does not exist.'
-                '\nGenerating GIF requires:'
+                '\n\nGenerating GIF requires:'
                 '\n1. Output Properties: Set format to PNG'
                 '\n2. Render, Render Animation.'
                 '\n3. Generate Sprite Sheet'
+                ''.format(source)
             )
-
+        delay = "1x" + str(scene.render.fps)
+        dispose = "background"
+        loop = "0"
+        destination = bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif")
+        if os.path.isfile(destination):
+            show_message('Overwriting "{}"'.format(destination))
+            os.remove(destination)
         subprocess.call([
             convert_path,
-            "-delay", "1x" + str(scene.render.fps),
-            "-dispose", "background",
-            "-loop", "0",
-            bpy.path.abspath(scene.render.filepath) + "*",
+            "-delay",
+            delay,
+            "-dispose",
+            dispose,
+            "-loop",
+            loop,
+            source,
             # FIXME: ^ scene.render.filepath assumes the files in the
             #   render path are only for the rendered animation
-            bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif")
+            destination
         ])
+        if os.path.isfile(destination):
+            msg = 'Spritify finished writing "{}".'.format(destination)
+            show_message(msg)
+            print(msg)
+        else:
+            msg = 'Spritify failed to create "{}".'.format(destination)
+            show_message(msg, icon="ERROR")
+            print(msg, file=sys.stderr)
 
 
 class SpritifyOperator(bpy.types.Operator):
@@ -327,7 +392,7 @@ class SpritifyOperator(bpy.types.Operator):
             return True
         else:
             return False
-            print("not done yet")
+            print("[Spritify] not done yet")
 
     def execute(self, context):
         toggle = False
@@ -367,7 +432,7 @@ class GIFifyOperator(bpy.types.Operator):
             return True
         else:
             return False
-            print("not done yet")
+            print("[Spritify] not done yet")
 
     def execute(self, context):
         toggle = False
