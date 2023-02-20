@@ -25,6 +25,7 @@ import subprocess
 import math
 from bpy.app.handlers import persistent
 import sys
+import shutil
 
 bl_info = {
     "name": "Spritify",
@@ -139,14 +140,28 @@ def find_bin_path_windows():
     return value
 
 
-def show_message(message, title="Spritify", icon='INFO'):
+def show_message(operator, message, title="Spritify", icon='INFO'):
     def draw(self, context):
         self.layout.label(text=message)
-    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
-
+    print("[{}]".format(title), message, file=sys.stderr)
+    if operator is not None:
+        operator.report({'INFO'}, "[{}] {}".format(title, message))
+    else:
+        print("[{}] operator is None in show_message."
+              "".format(title), file=sys.stderr)
+    '''
+    try:
+        bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+        # ^ crashes, but does *not* raise exception!
+        #   The reason seems to be bad pointer (access violation)
+        #   according to <https://devtalk.blender.org/t/impossible-to-invoke-
+        #   a-message-inside-of-a-timer-app-make-blender-2-8-crash/7451/3>
+    except Exception:
+        print(exn, file=sys.stderr)
+    '''
 
 @persistent
-def spritify(scene):
+def spritify(scene, operator):
     if scene.spritesheet.auto_sprite:
         print("[Spritify] Making sprite sheet")
         # Remove existing spritesheet if it's already there
@@ -270,17 +285,20 @@ def spritify(scene):
                 offset += per_file
                 index += 1
         if os.path.isfile(destination):
-            msg = 'Spritify finished writing "{}".'.format(destination)
-            show_message(msg)
-            print(msg)
+            msg = ('Spritify finished writing auto_sprite "{}".'
+                   ''.format(destination))
+            show_message(operator, msg, title="spritify")
+            return {'message': msg}
         else:
-            msg = 'Spritify failed to write "{}".'.format(destination)
-            show_message(msg, icon="ERROR")
-            print(msg, file=sys.stderr)
+            msg = ('Spritify failed to write auto_sprite "{}".'
+                   ''.format(destination))
+            show_message(operator, msg, icon="ERROR", title="spritify")
+            return {'error': msg}
+
 
 
 @persistent
-def gifify(scene):
+def gifify(scene, operator):
     if scene.spritesheet.auto_gif:
         print("[Spritify] Generating animated GIF")
         # Remove existing animated GIF if it's already there
@@ -291,43 +309,59 @@ def gifify(scene):
             os.remove(bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif"))
 
         # If windows, try and find binary
-        convert_path = "%s/convert" % scene.spritesheet.imagemagick_path
+        converter_path = "%s/convert" % scene.spritesheet.imagemagick_path
+        # ^ formerly convert_path which was ambiguous (See new try_path
+        #   for temp image files).
 
         if os.name == "nt":
             bin_path = find_bin_path_windows()
 
             if bin_path:
-                convert_path = os.path.join(bin_path, "convert")
+                converter_path = os.path.join(bin_path, "convert")
 
-        if not os.path.isfile(convert_path):
+        if not os.path.isfile(converter_path):
             raise FileNotFoundError(
                 'The executable "{}" does not exist.'
                 '\n\nTIP: Make sure ImageMagick is installed and that'
                 ' the bin directory is correct in Render Properties, Spritify.'
-                ''.format(convert_path)
+                ''.format(converter_path)
             )
 
-        try_dir, name_partial = os.path.split(scene.render.filepath)
+        mixed_files_path, name_partial = os.path.split(scene.render.filepath)
         # ^ It is a partial name--It may have numbers after it.
         # partial, dotext = os.path.splitext(name_partial)
         found_any_file = None
         source = bpy.path.abspath(scene.render.filepath) + "*"
-        if os.path.isdir(try_dir):
-            for sub in os.listdir(try_dir):
+        # ^ The scene render filepath becomes part of each png
+        #   frame filename.
+        convert_tmp_dir = os.path.join(mixed_files_path, "spritify")
+        if os.path.isdir(convert_tmp_dir):
+            shutil.rmtree(convert_tmp_dir)
+        os.makedirs(convert_tmp_dir)
+        if os.path.isdir(mixed_files_path):
+            for sub in os.listdir(mixed_files_path):
                 if sub.startswith("."):
                     continue
                 if sub.lower().endswith(".tmp"):
                     continue
-                sub_path = os.path.join(try_dir, sub)
+                if sub.lower().endswith(".txt"):
+                    # such as {blendfilename.splitext()[0]}.crash.txt
+                    continue
+                if not sub.lower().endswith(".png"):
+                    # Allow *only* png animation frames!
+                    continue
+                sub_path = os.path.join(mixed_files_path, sub)
                 if not os.path.isfile(sub_path):
                     continue
                 found_any_file = sub_path
+                new_path = os.path.join(convert_tmp_dir, sub)
+                shutil.move(sub_path, new_path)
                 break
 
         if found_any_file is None:
             caveat = ""
             raise FileNotFoundError(
-                '"{}" does not exist.'
+                'There are no "{}" PNG files.'
                 '\n\nGenerating GIF requires:'
                 '\n1. Output Properties: Set format to PNG'
                 '\n2. Render, Render Animation.'
@@ -339,10 +373,15 @@ def gifify(scene):
         loop = "0"
         destination = bpy.path.abspath(scene.spritesheet.filepath[:-3] + "gif")
         if os.path.isfile(destination):
-            show_message('Overwriting "{}"'.format(destination))
+            show_message(operator, 'Overwriting "{}"'.format(destination))
             os.remove(destination)
+        if not os.path.isdir(convert_tmp_dir):
+            raise FileNotFoundError(
+                'convert_tmp_dir does not exist: "{}"'
+                ''.format(convert_tmp_dir)
+            )
         subprocess.call([
-            convert_path,
+            convert_tmp_dir,
             "-delay",
             delay,
             "-dispose",
@@ -355,13 +394,13 @@ def gifify(scene):
             destination
         ])
         if os.path.isfile(destination):
-            msg = 'Spritify finished writing "{}".'.format(destination)
-            show_message(msg)
-            print(msg)
+            msg = 'Spritify finished writing auto_gif "{}".'.format(destination)
+            show_message(operator, msg, title="Spritify gifify")
+            return {'message': msg}
         else:
-            msg = 'Spritify failed to create "{}".'.format(destination)
-            show_message(msg, icon="ERROR")
-            print(msg, file=sys.stderr)
+            msg = 'Spritify failed to create auto_gif "{}".'.format(destination)
+            show_message(operator, msg, icon="ERROR", title="Spritify gifify")
+            return {'error': msg}
 
 
 class SpritifyOperator(bpy.types.Operator):
@@ -399,10 +438,26 @@ class SpritifyOperator(bpy.types.Operator):
         if not context.scene.spritesheet.auto_sprite:
             context.scene.spritesheet.auto_sprite = True
             toggle = True
-        spritify(context.scene)
+        self.show_results(
+            spritify(self, context.scene)
+        )
+
         if toggle:
             context.scene.spritesheet.auto_sprite = False
         return {'FINISHED'}
+
+    def show_results(self, results):
+        '''
+        Handle output from helper functions (show error or message if any).
+        See also show_results in GIFifyOperator.
+        '''
+        if results is not None:
+            error = results.get('error')
+            message = results.get('message')
+            if error is not None:
+                self.report({'ERROR'}, error)
+            elif message is not None:
+                self.report({'INFO'}, message)
 
 
 class GIFifyOperator(bpy.types.Operator):
@@ -439,10 +494,33 @@ class GIFifyOperator(bpy.types.Operator):
         if not context.scene.spritesheet.auto_gif:
             context.scene.spritesheet.auto_gif = True
             toggle = True
-        gifify(context.scene)
+        self.show_results(
+            gifify(context.scene, self)
+        )
+        if results is not None:
+            error = results.get('error')
+            message = results.get('message')
+            if error is not None:
+                self.report({'ERROR'}, error)
+            elif message is not None:
+                self.report({'INFO'}, message)
+
         if toggle:
             context.scene.spritesheet.auto_gif = False
         return {'FINISHED'}
+
+    def show_results(self, results):
+        '''
+        Handle output from helper functions (show error or message if any).
+        See also show_results in SpritifyOperator.
+        '''
+        if results is not None:
+            error = results.get('error')
+            message = results.get('message')
+            if error is not None:
+                self.report({'ERROR'}, error)
+            elif message is not None:
+                self.report({'INFO'}, message)
 
 
 class SpritifyPanel(bpy.types.Panel):
